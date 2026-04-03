@@ -164,6 +164,127 @@ async def get_movies_by_genre(genre: str, limit: int = 10, ctx: Context = None) 
         raise
 
 
+@mcp.resource("catalog://genres")
+async def get_genres(ctx: Context) -> dict:
+    """Get all available movie genres with their counts."""
+    context = ctx.request_context.lifespan_context
+    records, _, _ = await context.driver.execute_query(
+        """
+        MATCH (g:Genre)
+        RETURN g.name AS name,
+               count((g)<-[:IN_GENRE]-()) AS movieCount
+        ORDER BY g.name
+        """,
+        database_=context.database
+    )
+
+    return {
+        "genres": [
+            dict(r) for r in records
+        ]
+    }
+
+
+@mcp.resource("movie://{id}")
+async def get_movie(id: str, ctx: Context) -> dict:
+    """Get details about a specific movie by ID."""
+    context = ctx.request_context.lifespan_context
+    records, _, _ = await context.driver.execute_query(
+        """
+        MATCH (m:Movie {tmdbId: $id})
+        RETURN m.title AS title,
+                m.tagline AS tagline,
+                m.released AS released,
+                m.plot AS plot,
+                [ (m)-[:IN_GENRE]->(g:Genre) | g.name ] AS genres
+        """,
+        id=id,
+        database_=context.database
+    )
+
+    if not records:
+        return {"error": f"Movie {id} not found"}
+
+    return records[0].data()
+
+
+@mcp.resource("movie://{tmdb_id}")
+async def get_movie(tmdb_id: str, ctx: Context) -> str:
+    """
+    Get detailed information about a specific movie by TMDB ID.
+
+    Args:
+        tmdb_id: The TMDB ID of the movie (e.g., "603" for The Matrix)
+
+    Returns:
+        Formatted string with movie details including title, plot, cast, and genres
+    """
+    await ctx.info(f"Fetching movie details for TMDB ID: {tmdb_id}")
+
+    context = ctx.request_context.lifespan_context
+
+    try:
+        records, _, _ = await context.driver.execute_query(
+            """
+            MATCH (m:Movie {tmdbId: $tmdb_id})
+            RETURN m.title AS title,
+               m.released AS released,
+               m.tagline AS tagline,
+               m.runtime AS runtime,
+               m.plot AS plot,
+               [ (m)-[:IN_GENRE]->(g:Genre) | g.name ] AS genres,
+               [ (p)-[r:ACTED_IN]->(m) | {name: p.name, role: r.role} ] AS actors,
+               [ (d)-[:DIRECTED]->(m) | d.name ] AS directors
+            """,
+            tmdb_id=tmdb_id,
+            database_=context.database
+        )
+
+        if not records:
+            await ctx.warning(f"Movie with TMDB ID {tmdb_id} not found")
+            return f"Movie with TMDB ID {tmdb_id} not found in database"
+
+        movie = records[0].data()
+
+        # Format the output
+        output = []
+        output.append(f"# {movie['title']} ({movie['released']})")
+        output.append("")
+
+        if movie['tagline']:
+            output.append(f"_{movie['tagline']}_")
+            output.append("")
+
+        output.append(f"**Runtime:** {movie['runtime']} minutes")
+        output.append(f"**Genres:** {', '.join(movie['genres'])}")
+
+        if movie['directors']:
+            output.append(f"**Director(s):** {', '.join(movie['directors'])}")
+
+        output.append("")
+        output.append("## Plot")
+        output.append(movie['plot'])
+
+        if movie['actors']:
+            output.append("")
+            output.append("## Cast")
+            for actor in movie['actors']:
+                if actor['role']:
+                    output.append(f"- {actor['name']} as {actor['role']}")
+                else:
+                    output.append(f"- {actor['name']}")
+
+        result = "\n".join(output)
+
+        await ctx.info(f"Successfully fetched details for '{movie['title']}'")
+
+        return result
+
+    except Exception as e:
+        await ctx.error(f"Failed to fetch movie: {str(e)}")
+        raise
+
+
 # Run the server when executed directly
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
