@@ -59,6 +59,55 @@ async def graph_statistics(ctx: Context) -> dict[str, int]:
         return dict(records[0])
     return {"nodes": 0, "relationships": 0}
 
+
+# 5. Access the driver in your tools
+@mcp.tool()
+async def count_movie_nodes(ctx: Context) -> dict:
+    """Count different types of nodes in the movie graph."""
+
+    # Access the Neo4j driver from lifespan context
+    driver = ctx.request_context.lifespan_context.driver
+
+    # Initialize results
+    results = {}
+
+    # Define queries to run
+    queries = [
+        ("Person", "MATCH (p:Person) RETURN count(p) AS count"),
+        ("Movie", "MATCH (m:Movie) RETURN count(m) AS count"),
+        ("Genre", "MATCH (g:Genre) RETURN count(g) AS count"),
+        ("User", "MATCH (u:User) RETURN count(u) AS count")
+    ]
+
+    # Log start of operation
+    await ctx.info("Starting node count analysis...")
+
+    # Execute each query and track progress
+    for i, (label, query) in enumerate(queries):
+        # Report progress (0-based index)
+        await ctx.report_progress(
+            progress=i,
+            total=len(queries),
+            message=f"Counting {label} nodes..."
+        )
+
+        # Execute query
+        records, _, _ = await driver.execute_query(query)
+        count = records[0]["count"]
+
+        # Store and log result
+        results[label] = count
+        await ctx.info(f"Found {count} {label} nodes")
+
+    # Report completion
+    await ctx.report_progress(
+        progress=len(queries),
+        total=len(queries),
+        message="Analysis complete!"
+    )
+
+    return results
+
 # Run the server when executed directly
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
