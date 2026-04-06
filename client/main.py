@@ -8,6 +8,22 @@ import re
 from typing import Any, Dict
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.types import SamplingMessage, TextContent
+from mcp.types import ClientCapabilities, SamplingCapability, CreateMessageResult, TextContent
+
+async def handle_sampling_request(context, params):
+    """Handle sampling requests from the server by returning a simple response."""
+    # Since we don't have an LLM connection
+    # we return a placeholder response
+
+    return CreateMessageResult(
+        role="assistant",
+        content=TextContent(
+            type="text",
+            text="********* This is a generated response from the client's sampling handler."
+        ),
+        model="placeholder-model"
+    )
 
 
 def build_arguments_from_schema(input_schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -82,7 +98,7 @@ async def interactive_tool_client():
         async with streamablehttp_client(server_url) as (read, write, get_session_id):
             print(f"✅ Connected! Session ID: {get_session_id()}\n")
 
-            async with ClientSession(read, write) as session:
+            async with ClientSession(read, write, sampling_callback=handle_sampling_request) as session:
                 await session.initialize()
                 
                 # Display server info if available

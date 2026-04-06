@@ -1,11 +1,13 @@
 import os
+# from typing import Literal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from neo4j import AsyncGraphDatabase, AsyncDriver
 from mcp.server.fastmcp import Context, FastMCP
-
+from mcp.server.fastmcp.prompts import base
+from mcp.types import SamplingMessage, TextContent
 
 # 1. Define a context class to hold your resources
 @dataclass
@@ -204,6 +206,30 @@ async def get_movie(id: str, ctx: Context) -> dict:
 
     if not records:
         return {"error": f"Movie {id} not found"}
+
+    return records[0].data()
+
+@mcp.resource("movie://{title}")
+async def get_movie_details_by_title(title: str, ctx: Context) -> dict:
+    """Get details about a specific movie by ID."""
+    context = ctx.request_context.lifespan_context
+    records, _, _ = await context.driver.execute_query(
+        """
+        MATCH (m:Movie)
+        WHERE toLower(m.title) contains toLower($title)
+        RETURN m.title AS title,
+                m.tagline AS tagline,
+                m.released AS released,
+                m.plot AS plot,
+                [ (p)-[r:ACTED_IN]->(m) | p.name ] AS actors,
+                [ (m)-[:IN_GENRE]->(g:Genre) | g.name ] AS genres
+        """,
+        title=title,
+        database_=context.database
+    )
+
+    if not records:
+        return {"error": f"Movie {title} not found"}
 
     return records[0].data()
 
@@ -419,6 +445,32 @@ async def list_movies_by_genre(
     except Exception as e:
         await ctx.error(f"Query failed: {str(e)}")
         raise
+
+
+@mcp.tool()
+async def explain_movie_data(movie_title: str, ctx: Context) -> str:
+    """Get a natural language explanation of movie data."""
+
+    # Get movie data from Neo4j
+    movie_data = await get_movie_details_by_title(movie_title, ctx)
+
+    # Ask LLM to explain the data
+    result = await ctx.session.create_message(
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(
+                    text=f"Describe {movie_data['title']} ({movie_data['released']}) " +
+                         f"starring {', '.join(movie_data['actors'])}. " +
+                         "Write 2-3 engaging sentences.",
+                    type="text"
+                )
+            )
+        ],
+        max_tokens=200
+    )
+
+    return result.content.text if result.content.type == "text" else str(result.content)
 
 
 @mcp.prompt()
