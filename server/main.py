@@ -420,6 +420,64 @@ async def list_movies_by_genre(
         await ctx.error(f"Query failed: {str(e)}")
         raise
 
+
+@mcp.prompt()
+def movie_recommendation() -> str:
+    """Get movie recommendations based on your preferences."""
+    return """I'd like to discover new movies to watch.
+
+    Please ask me about:
+    1. What genres I enjoy
+    2. Any specific movies I've loved
+    3. My preferred movie era or style
+
+    Then recommend 5 movies I might enjoy and explain why each one would be a good fit."""
+
+
+@mcp.prompt()
+def similar_movies(movie_title: str, count: int = 5) -> str:
+    """Find movies similar to one you enjoyed."""
+    return f"""I really enjoyed the movie "{movie_title}".
+
+Can you recommend {count} similar movies and explain why each one is similar?
+
+Consider factors like:
+
+- Genre and themes
+- Director or actors
+- Mood and tone
+- Era and style"""
+
+
+@mcp.prompt()
+def analyze_preferences(favorite_movies: str) -> list[base.Message]:
+    """Analyze your movie preferences and recommend genres."""
+
+    return [
+        base.UserMessage(
+            content=f"Here are my favorite movies: {favorite_movies}"
+        ),
+        base.AssistantMessage(
+            content="I'll analyze your movie preferences. Let me look at the genres and themes..."
+        ),
+        base.UserMessage(
+            content="Based on my favorites, what genres should I explore next?"
+        )
+    ]
+
+
+@mcp.prompt()
+def movie_discovery(genre: str = "any") -> str:
+    """Discover new movies in a genre."""
+
+    if genre == "any":
+        return """Help me discover new movies! What genres do I enjoy?
+What recent movies have I loved? Do I prefer classics or new releases?"""
+
+    return f"""Recommend 5 diverse {genre} movies that span different
+styles and eras. Explain why each is a great example of the genre."""
+
+
 # Run the server when executed directly
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
