@@ -285,6 +285,62 @@ async def get_movie(tmdb_id: str, ctx: Context) -> str:
         raise
 
 
+@mcp.tool()
+async def list_movies_paginated(
+    cursor: str = "0",
+    page_size: int = 50,
+    ctx: Context = None
+) -> dict:
+    """
+    List movies with pagination support.
+
+    Args:
+        cursor: Pagination cursor (skip value as string, default "0")
+        page_size: Number of movies per page (default 50)
+
+    Returns:
+        Dictionary with 'movies' list and 'next_cursor' for next page
+    """
+
+    # Convert cursor to skip value
+    skip = int(cursor)
+
+    await ctx.info(f"Fetching movies {skip} to {skip + page_size}...")
+
+    # Access driver
+    driver = ctx.request_context.lifespan_context.driver
+
+    # Query with SKIP and LIMIT
+    records, summary, keys = await driver.execute_query(
+        """
+        MATCH (m:Movie)
+        RETURN m.title AS title, m.released AS released
+        ORDER BY m.title
+        SKIP $skip
+        LIMIT $limit
+        """,
+        skip=skip,
+        limit=page_size
+    )
+
+    movies = [record.data() for record in records]
+
+    # Calculate next cursor
+    # If we got a full page, there might be more data
+    next_cursor = None
+    if len(movies) == page_size:
+        next_cursor = str(skip + page_size)
+
+    await ctx.info(f"Returned {len(movies)} movies")
+
+    return {
+        "movies": movies,
+        "next_cursor": next_cursor,
+        "current_page": skip // page_size,
+        "page_size": page_size
+    }
+
+
 # Run the server when executed directly
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
