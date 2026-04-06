@@ -341,6 +341,85 @@ async def list_movies_paginated(
     }
 
 
+@mcp.tool()
+async def list_movies_by_genre(
+    genre: str,
+    page_size: int = 10,
+    cursor: int = 0,
+    ctx: Context = None
+) -> dict:
+    """
+    Browse movies in a genre with pagination support.
+
+    Args:
+        genre: Genre name (e.g., "Action", "Comedy", "Drama")
+        cursor: Pagination cursor - position in the result set (default "0")
+        page_size: Number of movies to return per page (default 10)
+
+    Returns:
+        Dictionary containing:
+        - movies: List of movie objects with title, released, and rating
+        - next_cursor: Cursor for the next page (null if no more pages)
+        - page: Current page number (1-indexed)
+        - has_more: Boolean indicating if more pages are available
+    """
+    # Calculate skip value from cursor
+    skip = cursor * page_size
+
+    # Log the request
+    page_num = (skip // page_size) + 1
+    await ctx.info(f"Fetching {genre} movies, page {page_num} (showing {page_size} per page)...")
+
+    try:
+        # Access driver from lifespan context
+        driver = ctx.request_context.lifespan_context.driver
+
+        # Execute paginated query
+        records, summary, keys = await driver.execute_query(
+            """
+            MATCH (m:Movie)-[:IN_GENRE]->(g:Genre {name: $genre})
+            RETURN m.title AS title,
+                    m.released AS released,
+                    m.imdbRating AS rating
+            ORDER BY m.title ASC
+            SKIP $skip
+            LIMIT $limit
+            """,
+            genre=genre,
+            skip=skip,
+            limit=page_size
+        )
+
+        # Convert to list of dictionaries
+        movies = [record.data() for record in records]
+
+        # Convert to list of dictionaries
+        movies = [record.data() for record in records]
+
+        # Calculate next cursor
+        next_cursor = None
+        if len(movies) == page_size:
+            next_cursor = skip + page_size
+
+        # Log results
+        await ctx.info(f"Returned {len(movies)} movies from page {page_num}")
+        if next_cursor is None:
+            await ctx.info("This is the last page")
+
+        # Return structured response
+        return {
+            "genre": genre,
+            "movies": movies,
+            "next_cursor": next_cursor,
+            "page": page_num,
+            "page_size": page_size,
+            "has_more": next_cursor is not None
+        }
+
+    except Exception as e:
+        await ctx.error(f"Query failed: {str(e)}")
+        raise
+
 # Run the server when executed directly
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
